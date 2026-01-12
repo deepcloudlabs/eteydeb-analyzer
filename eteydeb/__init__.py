@@ -1,0 +1,102 @@
+import logging
+
+from eteydeb.models import Project
+from events import publish_event, NewProjectCreatedEvent, ProjectEventType, ProjectStatusChangedEvent
+from persistence import project_collection
+from utils_http import read_cookies
+
+logging.info("eteydeb module is loaded.")
+
+import uuid
+from dataclasses import dataclass, asdict
+from datetime import datetime
+import re
+
+import requests
+from bs4 import BeautifulSoup
+
+from utils_commons import clean_text as _clean_text
+
+ETEYDEB_URL = "https://eteydeb.tubitak.gov.tr/firmakullanicisianasayfa.htm?mod=2"
+COOKIE_FILE = "cookies.txt"
+
+MONGO_URI = "mongodb://localhost:27017"
+DB_NAME = "teydeb"
+COLLECTION_NAME = "projects"
+
+POLL_SECONDS = 60
+
+STATUS_RE = re.compile(r"^(.*?)\s*Ticarileşme Durumu:\s*(.*)$", re.UNICODE)
+
+logging.basicConfig(level=logging.INFO)
+def retrieve_teydeb_projects(cookies: str) -> list[Project]:
+    project_list: list[Project] = []
+
+    response = requests.get(
+        ETEYDEB_URL,
+        headers={"Cookie": cookies},
+        timeout=15,
+    )
+
+    response.raise_for_status()
+
+    soup = BeautifulSoup(response.text, "lxml")  # pip install lxml
+
+    projects = [a for a in soup.select("table.veriListeTablo tr")[1:]]
+    for project in projects:
+        columns = [a for a in project.select("td")]
+        no = int(_clean_text(columns[0].get_text()))
+        project_code = int(_clean_text(columns[1].get_text()))
+        support_type = _clean_text(columns[2].get_text())
+        project_type = _clean_text(columns[3].get_text())
+        application_date = _clean_text(columns[4].get_text())
+        project_name = _clean_text(columns[5].get_text())
+        project_owner = _clean_text(columns[6].get_text())
+        project_status_column = columns[7].get_text().strip().replace("\n", "").replace("\r", "").strip()
+        result = STATUS_RE.search(project_status_column)
+        project_status = project_status_column
+        project_commercialization_status = "N/A"
+        project_info_ref = "https://eteydeb.tubitak.gov.tr/" + columns[9].select_one("a").get_attribute_list("href")[0]
+
+        # print(project_info_ref)
+        if result:
+            project_status = result.group(1)
+            project_commercialization_status = result.group(2)
+        teydeb_manager = _clean_text(columns[8].get_text())
+        project_list.append(Project(
+            project_code=project_code,
+            project_name=project_name,
+            support_type=support_type,
+            project_type=project_type,
+            application_date=application_date,
+            project_owner=project_owner,
+            project_status=project_status,
+            project_commercialization_status=project_commercialization_status,
+            teydeb_manager=teydeb_manager,
+            updated_at=str(datetime.now()),
+            created_at=str(datetime.now())
+        ))
+    return project_list
+
+
+def poll_project_status():
+    logging.info(f"Polling project status {datetime.now()}")
+    projects = retrieve_teydeb_projects(read_cookies())
+    logging.info(f"Found {len(projects)} projects.")
+    for project in projects:
+        doc = project_collection.find_one({"project_code": project.project_code})
+        if not doc:
+            project_collection.insert_one(asdict(project))
+            publish_event(
+                NewProjectCreatedEvent(str(uuid.uuid4()), str(datetime.now()), ProjectEventType.NEW_PROJECT_CREATED,
+                                       project))
+        else:
+            if doc["project_status"] != project.project_status:
+                project_collection.update_one({"project_code": project.project_code},
+                                              {"$set": {"project_status": project.project_status}})
+                logging.info(
+                    f"{project.project_code:7} {project.project_name[:32]:32} {project.support_type:24} {project.project_status:28} {project.project_commercialization_status:28} {project.teydeb_manager:24}")
+                publish_event(
+                    ProjectStatusChangedEvent(str(uuid.uuid4()), str(datetime.now()),
+                                              ProjectEventType.PROJECT_STATUS_CHANGED,
+                                              project))
