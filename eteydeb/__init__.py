@@ -1,5 +1,4 @@
 import logging
-import time
 from typing import Optional
 from urllib.parse import urljoin
 
@@ -18,7 +17,7 @@ from utils_http import read_cookies
 logging.info("eteydeb module is loaded.")
 
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import asdict
 from datetime import datetime
 import re
 
@@ -110,7 +109,7 @@ def retrieve_teydeb_projects(cookies: str) -> list[Project]:
         projects = [a for a in soup.select("table.veriListeTablo tr")[1:]]
         for project in projects:
             columns = [a for a in project.select("td")]
-            no = int(_clean_text(columns[0].get_text()))
+            # no = int(_clean_text(columns[0].get_text()))
             project_code = int(_clean_text(columns[1].get_text()))
             support_type = _clean_text(columns[2].get_text())
             project_type = _clean_text(columns[3].get_text())

@@ -1,5 +1,4 @@
 import logging
-import os
 
 logging.info("utils::utils_http module is loaded.")
 
