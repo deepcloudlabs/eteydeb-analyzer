@@ -50,7 +50,7 @@ def _extract_popup_path(js_href: str) -> Optional[str]:
 
 
 def retrieve_teydeb_project_history(popup_path: str, cookies: str) -> bool:
-    logging.info("Retrieving project history: %s", popup_path[:120])
+    logging.info("Retrieving project history: %s...", popup_path[:120])
     try:
         response = requests.get(f"{BASE_URL}/{popup_path}", headers={"Cookie": cookies}, timeout=15)
         response.raise_for_status()
@@ -72,7 +72,7 @@ def retrieve_teydeb_project_history(popup_path: str, cookies: str) -> bool:
         return False
 
 
-def retrieve_teydeb_project_info(url: str, cookies: str):
+def retrieve_teydeb_project_info(url: str, cookies: str) -> bool :
     logging.info(f"Retrieving project info from {url[:120]}...")
     try:
         response = requests.get(url, headers={"Cookie": cookies}, timeout=15)
@@ -87,13 +87,17 @@ def retrieve_teydeb_project_info(url: str, cookies: str):
                 basvuru_durum_gecmisi = m.group(1) if m else None
                 while not retrieve_teydeb_project_history(basvuru_durum_gecmisi, cookies):
                     pass
-        time.sleep(30)
+        time.sleep(20)
+        return True
     except Timeout:
         logging.error("Request timed out.")
+        return False
     except RequestException as e:
         logging.error(f"Network/request error: {e}")
+        return False
     except Exception as e:
         logging.error(f"An error has occurred: {e}")
+        return False
 
 
 def retrieve_teydeb_projects(cookies: str) -> list[Project]:
@@ -121,7 +125,8 @@ def retrieve_teydeb_projects(cookies: str) -> list[Project]:
             project_commercialization_status = "N/A"
             project_info_ref = "https://eteydeb.tubitak.gov.tr/" + \
                                columns[9].select_one("a").get_attribute_list("href")[0]
-            retrieve_teydeb_project_info(project_info_ref, cookies)
+            while not retrieve_teydeb_project_info(project_info_ref, cookies):
+                pass
 
             if result:
                 project_status = result.group(1)
