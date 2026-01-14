@@ -52,14 +52,13 @@ def _extract_popup_path(js_href: str) -> Optional[str]:
 def retrieve_teydeb_project_history(popup_path: str, cookies: str) -> bool:
     logging.info("Retrieving project history: %s...", popup_path[:120])
     try:
-        response = requests.get(f"{BASE_URL}/{popup_path}", headers={"Cookie": cookies}, timeout=15)
+        response = requests.get(f"{BASE_URL}/{popup_path}", headers={"Cookie": cookies}, timeout=60)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "lxml")
         history = [tr for tr in soup.select("table.veriListeTablo tr")]
         for project_history_step in history[1:]:
             h = [td.get_text().strip() for td in project_history_step.select("tr td")]
             logging.info(h)
-        time.sleep(10)
         return True
     except Timeout:
         logging.error("Request timed out.")
@@ -72,10 +71,10 @@ def retrieve_teydeb_project_history(popup_path: str, cookies: str) -> bool:
         return False
 
 
-def retrieve_teydeb_project_info(url: str, cookies: str) -> bool :
-    logging.info(f"Retrieving project info from {url[:120]}...")
+def retrieve_teydeb_project_info(project_name: str, url: str, cookies: str) -> bool :
+    logging.info(f"Retrieving project info [{project_name}] from {url[:120]}...")
     try:
-        response = requests.get(url, headers={"Cookie": cookies}, timeout=15)
+        response = requests.get(url, headers={"Cookie": cookies}, timeout=60)
         response.raise_for_status()
 
         soup = BeautifulSoup(response.text, "lxml")
@@ -87,7 +86,6 @@ def retrieve_teydeb_project_info(url: str, cookies: str) -> bool :
                 basvuru_durum_gecmisi = m.group(1) if m else None
                 while not retrieve_teydeb_project_history(basvuru_durum_gecmisi, cookies):
                     pass
-        time.sleep(20)
         return True
     except Timeout:
         logging.error("Request timed out.")
@@ -103,7 +101,7 @@ def retrieve_teydeb_project_info(url: str, cookies: str) -> bool :
 def retrieve_teydeb_projects(cookies: str) -> list[Project]:
     project_list: list[Project] = []
     try:
-        response = requests.get(PROJECTS_URL, headers={"Cookie": cookies}, timeout=15)
+        response = requests.get(PROJECTS_URL, headers={"Cookie": cookies}, timeout=60)
 
         response.raise_for_status()
 
@@ -125,7 +123,7 @@ def retrieve_teydeb_projects(cookies: str) -> list[Project]:
             project_commercialization_status = "N/A"
             project_info_ref = "https://eteydeb.tubitak.gov.tr/" + \
                                columns[9].select_one("a").get_attribute_list("href")[0]
-            while not retrieve_teydeb_project_info(project_info_ref, cookies):
+            while not retrieve_teydeb_project_info(project_name,project_info_ref, cookies):
                 pass
 
             if result:

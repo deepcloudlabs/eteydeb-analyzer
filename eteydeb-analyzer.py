@@ -5,7 +5,7 @@ from eteydeb import poll_project_status
 
 logging.basicConfig(level=logging.INFO)
 
-POLL_SECONDS = 60
+POLL_SECONDS = 10
 
 while True:
     poll_project_status()
