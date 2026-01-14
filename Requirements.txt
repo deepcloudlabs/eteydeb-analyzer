@@ -2,4 +2,3 @@ requests
 lxml
 beautifulsoup4
 pymongo
-dcl-lottery
