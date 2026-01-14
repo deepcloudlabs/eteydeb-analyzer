@@ -37,7 +37,8 @@ def publish_event(project_event: ProjectEvent) -> bool:
     if isinstance(project_event, ProjectStatusChangedEvent):
         logging.info(
             f"Project {project_event.project.project_code} status has changed to {project_event.project.project_status}")
-        winsound.PlaySound("SystemExclamation", winsound.SND_ALIAS)
+        for _ in range(10):
+            winsound.PlaySound("SystemExclamation", winsound.SND_ALIAS)
         return True
     elif isinstance(project_event, NewProjectCreatedEvent):
         logging.info(f"New project has been created: {project_event.project}")
