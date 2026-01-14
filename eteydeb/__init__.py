@@ -1,6 +1,8 @@
 import logging
 import time
 
+from requests import Timeout, RequestException
+
 from eteydeb.models import Project
 from events import publish_event, NewProjectCreatedEvent, ProjectEventType, ProjectStatusChangedEvent
 from persistence import project_collection
@@ -34,75 +36,95 @@ logging.basicConfig(level=logging.INFO)
 
 def retrieve_teydeb_project_history(url: str, cookies: str):
     logging.info(f"Retrieving project history from {url[:64]}...")
-    response = requests.get(f"https://eteydeb.tubitak.gov.tr/{url}", headers={"Cookie": cookies}, timeout=15)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, "lxml")
-    print(soup.get_text())
-    time.sleep(30)
+    try:
+        response = requests.get(f"https://eteydeb.tubitak.gov.tr/{url}", headers={"Cookie": cookies}, timeout=15)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "lxml")
+        history = [tr for tr in soup.select("table.veriListeTablo tbody tr")]
+        for project_history_step in history:
+            td_date, td_step = [td.get_text() for td in project_history_step.select("td")]
+            print(td_date, td_step)
+        time.sleep(20)
+    except Timeout:
+        print("Request timed out.")
+    except RequestException as e:
+        print(f"Network/request error: {e}")
+    except Exception as e:
+        print(f"An error has occurred: {e}")
 
 
 def retrieve_teydeb_project_info(url: str, cookies: str):
-    logging.info(f"Retrieving project info from {url[:32]}...")
-    response = requests.get(url, headers={"Cookie": cookies}, timeout=15)
-    response.raise_for_status()
+    logging.info(f"Retrieving project info from {url[:64]}...")
+    try:
+        response = requests.get(url, headers={"Cookie": cookies}, timeout=15)
+        response.raise_for_status()
 
-    soup = BeautifulSoup(response.text, "lxml")
-    all_links = [a.get("href") for a in soup.select("a[href]")]
-    for link in all_links:
-        if "javascript:void(openPopUp('basvurudurumgecmisi" in link:
-            m = re.search(r"'([^']*)'", link)
-            basvuru_durum_gecmisi = m.group(1) if m else None
-            retrieve_teydeb_project_history(basvuru_durum_gecmisi, cookies)
-    time.sleep(30)
+        soup = BeautifulSoup(response.text, "lxml")
+        all_links = [a.get("href") for a in soup.select("a[href]")]
+        for link in all_links:
+            if "javascript:void(openPopUp('basvurudurumgecmisi" in link:
+                m = re.search(r"'([^']*)'", link)
+                basvuru_durum_gecmisi = m.group(1) if m else None
+                retrieve_teydeb_project_history(basvuru_durum_gecmisi, cookies)
+        time.sleep(30)
+    except Timeout:
+        print("Request timed out.")
+    except RequestException as e:
+        print(f"Network/request error: {e}")
+    except Exception as e:
+        print(f"An error has occurred: {e}")
 
 
 def retrieve_teydeb_projects(cookies: str) -> list[Project]:
     project_list: list[Project] = []
+    try:
+        response = requests.get(ETEYDEB_URL, headers={"Cookie": cookies}, timeout=15)
 
-    response = requests.get(
-        ETEYDEB_URL,
-        headers={"Cookie": cookies},
-        timeout=15,
-    )
+        response.raise_for_status()
 
-    response.raise_for_status()
+        soup = BeautifulSoup(response.text, "lxml")
 
-    soup = BeautifulSoup(response.text, "lxml")
+        projects = [a for a in soup.select("table.veriListeTablo tr")[1:]]
+        for project in projects:
+            columns = [a for a in project.select("td")]
+            no = int(_clean_text(columns[0].get_text()))
+            project_code = int(_clean_text(columns[1].get_text()))
+            support_type = _clean_text(columns[2].get_text())
+            project_type = _clean_text(columns[3].get_text())
+            application_date = _clean_text(columns[4].get_text())
+            project_name = _clean_text(columns[5].get_text())
+            project_owner = _clean_text(columns[6].get_text())
+            project_status_column = columns[7].get_text().strip().replace("\n", "").replace("\r", "").strip()
+            result = STATUS_RE.search(project_status_column)
+            project_status = project_status_column
+            project_commercialization_status = "N/A"
+            project_info_ref = "https://eteydeb.tubitak.gov.tr/" + \
+                               columns[9].select_one("a").get_attribute_list("href")[0]
+            retrieve_teydeb_project_info(project_info_ref, cookies)
 
-    projects = [a for a in soup.select("table.veriListeTablo tr")[1:]]
-    for project in projects:
-        columns = [a for a in project.select("td")]
-        no = int(_clean_text(columns[0].get_text()))
-        project_code = int(_clean_text(columns[1].get_text()))
-        support_type = _clean_text(columns[2].get_text())
-        project_type = _clean_text(columns[3].get_text())
-        application_date = _clean_text(columns[4].get_text())
-        project_name = _clean_text(columns[5].get_text())
-        project_owner = _clean_text(columns[6].get_text())
-        project_status_column = columns[7].get_text().strip().replace("\n", "").replace("\r", "").strip()
-        result = STATUS_RE.search(project_status_column)
-        project_status = project_status_column
-        project_commercialization_status = "N/A"
-        project_info_ref = "https://eteydeb.tubitak.gov.tr/" + columns[9].select_one("a").get_attribute_list("href")[0]
-        retrieve_teydeb_project_info(project_info_ref, cookies)
-
-        if result:
-            project_status = result.group(1)
-            project_commercialization_status = result.group(2)
-        teydeb_manager = _clean_text(columns[8].get_text())
-        project_list.append(Project(
-            project_code=project_code,
-            project_name=project_name,
-            support_type=support_type,
-            project_type=project_type,
-            application_date=application_date,
-            project_owner=project_owner,
-            project_status=project_status,
-            project_commercialization_status=project_commercialization_status,
-            teydeb_manager=teydeb_manager,
-            updated_at=str(datetime.now()),
-            created_at=str(datetime.now())
-        ))
+            if result:
+                project_status = result.group(1)
+                project_commercialization_status = result.group(2)
+            teydeb_manager = _clean_text(columns[8].get_text())
+            project_list.append(Project(
+                project_code=project_code,
+                project_name=project_name,
+                support_type=support_type,
+                project_type=project_type,
+                application_date=application_date,
+                project_owner=project_owner,
+                project_status=project_status,
+                project_commercialization_status=project_commercialization_status,
+                teydeb_manager=teydeb_manager,
+                updated_at=str(datetime.now()),
+                created_at=str(datetime.now())
+            ))
+    except Timeout:
+        print("Request timed out.")
+    except RequestException as e:
+        print(f"Network/request error: {e}")
+    except Exception as e:
+        print(f"An error has occurred: {e}")
     return project_list
 
 
