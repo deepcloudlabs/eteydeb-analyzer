@@ -43,14 +43,14 @@ def retrieve_teydeb_project_history(url: str, cookies: str):
         history = [tr for tr in soup.select("table.veriListeTablo tbody tr")]
         for project_history_step in history:
             td_date, td_step = [td.get_text() for td in project_history_step.select("td")]
-            print(td_date, td_step)
+            logging.error(td_date, td_step)
         time.sleep(20)
     except Timeout:
-        print("Request timed out.")
+        logging.error("Request timed out.")
     except RequestException as e:
-        print(f"Network/request error: {e}")
+        logging.error(f"Network/request error: {e}")
     except Exception as e:
-        print(f"An error has occurred: {e}")
+        logging.error(f"An error has occurred: {e}")
 
 
 def retrieve_teydeb_project_info(url: str, cookies: str):
@@ -68,11 +68,11 @@ def retrieve_teydeb_project_info(url: str, cookies: str):
                 retrieve_teydeb_project_history(basvuru_durum_gecmisi, cookies)
         time.sleep(30)
     except Timeout:
-        print("Request timed out.")
+        logging.error("Request timed out.")
     except RequestException as e:
-        print(f"Network/request error: {e}")
+        logging.error(f"Network/request error: {e}")
     except Exception as e:
-        print(f"An error has occurred: {e}")
+        logging.error(f"An error has occurred: {e}")
 
 
 def retrieve_teydeb_projects(cookies: str) -> list[Project]:
@@ -120,11 +120,11 @@ def retrieve_teydeb_projects(cookies: str) -> list[Project]:
                 created_at=str(datetime.now())
             ))
     except Timeout:
-        print("Request timed out.")
+        logging.error("Request timed out.")
     except RequestException as e:
-        print(f"Network/request error: {e}")
+        logging.error(f"Network/request error: {e}")
     except Exception as e:
-        print(f"An error has occurred: {e}")
+        logging.error(f"An error has occurred: {e}")
     return project_list
 
 
