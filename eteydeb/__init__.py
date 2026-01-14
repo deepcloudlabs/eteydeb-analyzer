@@ -1,10 +1,17 @@
 import logging
 import time
+from typing import Optional
+from urllib.parse import urljoin
 
 from requests import Timeout, RequestException
 
 from eteydeb.models import Project
-from events import publish_event, NewProjectCreatedEvent, ProjectEventType, ProjectStatusChangedEvent
+from events import (
+    publish_event,
+    NewProjectCreatedEvent,
+    ProjectEventType,
+    ProjectStatusChangedEvent
+)
 from persistence import project_collection
 from utils_http import read_cookies
 
@@ -20,8 +27,11 @@ from bs4 import BeautifulSoup
 
 from utils_commons import clean_text as _clean_text
 
-ETEYDEB_URL = "https://eteydeb.tubitak.gov.tr/firmakullanicisianasayfa.htm?mod=2"
 COOKIE_FILE = "cookies.txt"
+BASE_URL = "https://eteydeb.tubitak.gov.tr/"
+PROJECTS_URL = urljoin(BASE_URL, "firmakullanicisianasayfa.htm?mod=2")
+POPUP_HREF_PREFIX = "javascript:void(openPopUp('basvurudurumgecmisi"
+POPUP_PATH_RE = re.compile(r"'([^']*)'")
 
 MONGO_URI = "mongodb://localhost:27017"
 DB_NAME = "teydeb"
@@ -34,27 +44,36 @@ STATUS_RE = re.compile(r"^(.*?)\s*Ticarileşme Durumu:\s*(.*)$", re.UNICODE)
 logging.basicConfig(level=logging.INFO)
 
 
-def retrieve_teydeb_project_history(url: str, cookies: str):
-    logging.info(f"Retrieving project history from {url[:64]}...")
+def _extract_popup_path(js_href: str) -> Optional[str]:
+    m = POPUP_PATH_RE.search(js_href or "")
+    return m.group(1) if m else None
+
+
+def retrieve_teydeb_project_history(popup_path: str, cookies: str) -> bool:
+    logging.info("Retrieving project history: %s", popup_path[:120])
     try:
-        response = requests.get(f"https://eteydeb.tubitak.gov.tr/{url}", headers={"Cookie": cookies}, timeout=15)
+        response = requests.get(f"{BASE_URL}/{popup_path}", headers={"Cookie": cookies}, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "lxml")
-        history = [tr for tr in soup.select("table.veriListeTablo tbody tr")]
-        for project_history_step in history:
-            td_date, td_step = [td.get_text() for td in project_history_step.select("td")]
-            logging.error(td_date, td_step)
-        time.sleep(20)
+        history = [tr for tr in soup.select("table.veriListeTablo tr")]
+        for project_history_step in history[1:]:
+            h = [td.get_text().strip() for td in project_history_step.select("tr td")]
+            logging.info(h)
+        time.sleep(10)
+        return True
     except Timeout:
         logging.error("Request timed out.")
+        return False
     except RequestException as e:
         logging.error(f"Network/request error: {e}")
+        return False
     except Exception as e:
         logging.error(f"An error has occurred: {e}")
+        return False
 
 
 def retrieve_teydeb_project_info(url: str, cookies: str):
-    logging.info(f"Retrieving project info from {url[:64]}...")
+    logging.info(f"Retrieving project info from {url[:120]}...")
     try:
         response = requests.get(url, headers={"Cookie": cookies}, timeout=15)
         response.raise_for_status()
@@ -63,9 +82,11 @@ def retrieve_teydeb_project_info(url: str, cookies: str):
         all_links = [a.get("href") for a in soup.select("a[href]")]
         for link in all_links:
             if "javascript:void(openPopUp('basvurudurumgecmisi" in link:
+
                 m = re.search(r"'([^']*)'", link)
                 basvuru_durum_gecmisi = m.group(1) if m else None
-                retrieve_teydeb_project_history(basvuru_durum_gecmisi, cookies)
+                while not retrieve_teydeb_project_history(basvuru_durum_gecmisi, cookies):
+                    pass
         time.sleep(30)
     except Timeout:
         logging.error("Request timed out.")
@@ -78,7 +99,7 @@ def retrieve_teydeb_project_info(url: str, cookies: str):
 def retrieve_teydeb_projects(cookies: str) -> list[Project]:
     project_list: list[Project] = []
     try:
-        response = requests.get(ETEYDEB_URL, headers={"Cookie": cookies}, timeout=15)
+        response = requests.get(PROJECTS_URL, headers={"Cookie": cookies}, timeout=15)
 
         response.raise_for_status()
 
