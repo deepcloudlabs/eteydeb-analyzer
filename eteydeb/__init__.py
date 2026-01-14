@@ -1,4 +1,5 @@
 import logging
+import time
 
 from eteydeb.models import Project
 from events import publish_event, NewProjectCreatedEvent, ProjectEventType, ProjectStatusChangedEvent
@@ -29,6 +30,32 @@ POLL_SECONDS = 60
 STATUS_RE = re.compile(r"^(.*?)\s*Ticarileşme Durumu:\s*(.*)$", re.UNICODE)
 
 logging.basicConfig(level=logging.INFO)
+
+
+def retrieve_teydeb_project_history(url: str, cookies: str):
+    logging.info(f"Retrieving project history from {url[:64]}...")
+    response = requests.get(f"https://eteydeb.tubitak.gov.tr/{url}", headers={"Cookie": cookies}, timeout=15)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, "lxml")
+    print(soup.get_text())
+    time.sleep(30)
+
+
+def retrieve_teydeb_project_info(url: str, cookies: str):
+    logging.info(f"Retrieving project info from {url[:32]}...")
+    response = requests.get(url, headers={"Cookie": cookies}, timeout=15)
+    response.raise_for_status()
+
+    soup = BeautifulSoup(response.text, "lxml")
+    all_links = [a.get("href") for a in soup.select("a[href]")]
+    for link in all_links:
+        if "javascript:void(openPopUp('basvurudurumgecmisi" in link:
+            m = re.search(r"'([^']*)'", link)
+            basvuru_durum_gecmisi = m.group(1) if m else None
+            retrieve_teydeb_project_history(basvuru_durum_gecmisi, cookies)
+    time.sleep(30)
+
+
 def retrieve_teydeb_projects(cookies: str) -> list[Project]:
     project_list: list[Project] = []
 
@@ -40,7 +67,7 @@ def retrieve_teydeb_projects(cookies: str) -> list[Project]:
 
     response.raise_for_status()
 
-    soup = BeautifulSoup(response.text, "lxml")  # pip install lxml
+    soup = BeautifulSoup(response.text, "lxml")
 
     projects = [a for a in soup.select("table.veriListeTablo tr")[1:]]
     for project in projects:
@@ -57,8 +84,8 @@ def retrieve_teydeb_projects(cookies: str) -> list[Project]:
         project_status = project_status_column
         project_commercialization_status = "N/A"
         project_info_ref = "https://eteydeb.tubitak.gov.tr/" + columns[9].select_one("a").get_attribute_list("href")[0]
+        retrieve_teydeb_project_info(project_info_ref, cookies)
 
-        # print(project_info_ref)
         if result:
             project_status = result.group(1)
             project_commercialization_status = result.group(2)
@@ -83,6 +110,7 @@ def poll_project_status():
     logging.info(f"Polling project status {datetime.now()}")
     projects = retrieve_teydeb_projects(read_cookies())
     logging.info(f"Found {len(projects)} projects.")
+    projects_has_status_changed = []
     for project in projects:
         doc = project_collection.find_one({"project_code": project.project_code})
         if not doc:
@@ -92,6 +120,7 @@ def poll_project_status():
                                        project))
         else:
             if doc["project_status"] != project.project_status:
+                projects_has_status_changed.append(project)
                 project_collection.update_one({"project_code": project.project_code},
                                               {"$set": {"project_status": project.project_status}})
                 logging.info(
@@ -100,3 +129,8 @@ def poll_project_status():
                     ProjectStatusChangedEvent(str(uuid.uuid4()), str(datetime.now()),
                                               ProjectEventType.PROJECT_STATUS_CHANGED,
                                               project))
+    logging.info(f"Summary:")
+    if len(projects_has_status_changed) > 0:
+        logging.info(f"There is/are {len(projects_has_status_changed)} projects has status changed.")
+    else:
+        logging.info(f"There is NO change in the projects.")
