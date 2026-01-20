@@ -2,6 +2,12 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class StatusHistory:
+    datetime: str
+    status: str
+
+
+@dataclass(frozen=True)
 class Project:
     project_code: int
     project_name: str
@@ -14,5 +20,4 @@ class Project:
     teydeb_manager: str
     created_at: str
     updated_at: str
-
-
+    status_history: list[StatusHistory]
