@@ -140,7 +140,8 @@ def retrieve_teydeb_projects(cookies: str) -> list[Project]:
                 project_commercialization_status=project_commercialization_status,
                 teydeb_manager=teydeb_manager,
                 updated_at=str(datetime.now()),
-                created_at=str(datetime.now())
+                created_at=str(datetime.now()),
+                status_history=[]
             ))
     except Timeout:
         logging.error("Request timed out.")
